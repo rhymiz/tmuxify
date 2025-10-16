@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::Window;
 
@@ -46,7 +46,11 @@ impl Config {
     }
 
     /// Get the tmuxp file path based on location preference
-    pub fn get_file_path(&self, location: TmuxpLocation) -> anyhow::Result<PathBuf> {
+    pub fn get_file_path(
+        &self,
+        location: TmuxpLocation,
+        project_dir: Option<&Path>,
+    ) -> anyhow::Result<PathBuf> {
         match location {
             TmuxpLocation::Home => {
                 let home = dirs::home_dir()
@@ -54,7 +58,13 @@ impl Config {
                 let tmuxp_dir = home.join(".tmuxp");
                 Ok(tmuxp_dir.join(format!("{}.yaml", self.session_name)))
             }
-            TmuxpLocation::Project => Ok(PathBuf::from(".tmuxp.yaml")),
+            TmuxpLocation::Project => {
+                if let Some(dir) = project_dir {
+                    Ok(dir.join(".tmuxp.yaml"))
+                } else {
+                    Ok(PathBuf::from(".tmuxp.yaml"))
+                }
+            }
         }
     }
 
@@ -72,5 +82,58 @@ fi
 "#,
             load_path
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn sample_config() -> Config {
+        Config::new(
+            "myapp".to_string(),
+            "/tmp/myapp".to_string(),
+            vec![],
+        )
+    }
+
+    #[test]
+    fn yaml_contains_basic_fields() {
+        let cfg = sample_config();
+        let y = cfg.to_yaml().unwrap();
+        assert!(y.contains("session_name"));
+        assert!(y.contains("myapp"));
+        assert!(y.contains("start_directory"));
+    }
+
+    #[test]
+    fn envrc_home_points_to_home_tmuxp() {
+        let cfg = sample_config();
+        let envrc = cfg.generate_envrc(TmuxpLocation::Home);
+        assert!(envrc.contains("~/.tmuxp/myapp.yaml"));
+    }
+
+    #[test]
+    fn envrc_project_points_to_local_file() {
+        let cfg = sample_config();
+        let envrc = cfg.generate_envrc(TmuxpLocation::Project);
+        assert!(envrc.contains("./.tmuxp.yaml"));
+    }
+
+    #[test]
+    fn get_path_home_includes_session() {
+        let cfg = sample_config();
+        let p = cfg.get_file_path(TmuxpLocation::Home, None).unwrap();
+        assert!(p.ends_with(PathBuf::from(".tmuxp").join("myapp.yaml")));
+    }
+
+    #[test]
+    fn get_path_project_uses_given_dir() {
+        let cfg = sample_config();
+        let p = cfg
+            .get_file_path(TmuxpLocation::Project, Some(Path::new("/work/proj")))
+            .unwrap();
+        assert_eq!(p, PathBuf::from("/work/proj/.tmuxp.yaml"));
     }
 }

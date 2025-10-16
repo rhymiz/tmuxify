@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 pub struct Dependency {
     pub name: &'static str,
     pub binary: &'static str,
-    pub brew_package: &'static str,
+    pub package_name: &'static str,
 }
 
 impl Dependency {
@@ -14,9 +14,38 @@ impl Dependency {
         which::which(self.binary).is_ok()
     }
 
-    /// Get installation hint for missing dependency
+    /// Get installation hint for missing dependency, adapted to available package manager
     pub fn install_hint(&self) -> String {
-        format!("brew install {}", self.brew_package)
+        // Probe common package managers
+        let managers = [
+            ("brew", format!("brew install {}", self.package_name)),
+            (
+                "apt-get",
+                format!(
+                    "sudo apt-get update && sudo apt-get install -y {}",
+                    self.package_name
+                ),
+            ),
+            (
+                "apt",
+                format!(
+                    "sudo apt update && sudo apt install -y {}",
+                    self.package_name
+                ),
+            ),
+            ("dnf", format!("sudo dnf install -y {}", self.package_name)),
+            ("pacman", format!("sudo pacman -S --noconfirm {}", self.package_name)),
+            ("zypper", format!("sudo zypper install -y {}", self.package_name)),
+        ];
+
+        for (bin, cmd) in managers {
+            if which::which(bin).is_ok() {
+                return cmd;
+            }
+        }
+
+        // Fallback generic hint
+        format!("Install '{}' using your system's package manager", self.package_name)
     }
 }
 
@@ -25,17 +54,17 @@ pub const DEPENDENCIES: &[Dependency] = &[
     Dependency {
         name: "tmux",
         binary: "tmux",
-        brew_package: "tmux",
+        package_name: "tmux",
     },
     Dependency {
         name: "tmuxp",
         binary: "tmuxp",
-        brew_package: "tmuxp",
+        package_name: "tmuxp",
     },
     Dependency {
         name: "direnv",
         binary: "direnv",
-        brew_package: "direnv",
+        package_name: "direnv",
     },
 ];
 

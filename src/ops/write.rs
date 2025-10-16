@@ -47,9 +47,16 @@ fn backup_file(path: &Path, force: bool) -> Result<bool> {
         return Ok(false);
     }
 
-    // Create backup with timestamp
+    // Create backup with timestamp, preserving original filename
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let backup_path = path.with_extension(format!("yaml.backup.{}", timestamp));
+    let backup_path = {
+        let file_name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Invalid path for backup"))?;
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        parent.join(format!("{}.backup.{}", file_name, timestamp))
+    };
 
     fs::copy(path, &backup_path)
         .with_context(|| format!("Failed to create backup at {}", backup_path.display()))?;
@@ -64,12 +71,8 @@ pub fn write_config(
     project_dir: &Path,
     options: &WriteOptions,
 ) -> Result<WriteResult> {
-    // Get file paths
-    let tmuxp_path = if location == TmuxpLocation::Home {
-        config.get_file_path(location)?
-    } else {
-        project_dir.join(".tmuxp.yaml")
-    };
+    // Get file paths (centralized through Config)
+    let tmuxp_path = config.get_file_path(location, Some(project_dir))?;
 
     let envrc_path = project_dir.join(".envrc");
 
@@ -151,4 +154,45 @@ pub fn run_direnv_allow(project_dir: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Config, TmuxpLocation, Window};
+    use tempfile::tempdir;
+
+    #[test]
+    fn write_config_creates_backups_when_files_exist() {
+        let dir = tempdir().unwrap();
+        let project_dir = dir.path();
+
+        // Pre-create files to trigger backup
+        let tmuxp_path = project_dir.join(".tmuxp.yaml");
+        let envrc_path = project_dir.join(".envrc");
+        fs::write(&tmuxp_path, "existing tmuxp").unwrap();
+        fs::write(&envrc_path, "existing envrc").unwrap();
+
+        let cfg = Config::new("sess".into(), project_dir.display().to_string(), vec![Window::simple()]);
+        let opts = WriteOptions { dry_run: false, force: false };
+
+        let res = write_config(&cfg, TmuxpLocation::Project, project_dir, &opts).unwrap();
+
+        assert!(res.tmuxp_backed_up);
+        assert!(res.envrc_backed_up);
+
+        // Look for backup files
+        let mut tmuxp_backup_found = false;
+        let mut envrc_backup_found = false;
+        for entry in fs::read_dir(project_dir).unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.file_name();
+            let s = name.to_string_lossy();
+            if s.starts_with(".tmuxp.yaml.backup.") { tmuxp_backup_found = true; }
+            if s.starts_with(".envrc.backup.") { envrc_backup_found = true; }
+        }
+
+        assert!(tmuxp_backup_found, "expected tmuxp backup file");
+        assert!(envrc_backup_found, "expected envrc backup file");
+    }
 }

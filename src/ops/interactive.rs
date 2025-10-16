@@ -31,7 +31,8 @@ pub fn run(args: Args) -> Result<()> {
             .interact()?
         {
             println!("Aborted. Please run tmuxify from outside of tmux.");
-            std::process::exit(0);
+            // Don't exit the process; return gracefully for testability
+            return Ok(());
         }
 
         println!();
@@ -46,7 +47,8 @@ pub fn run(args: Args) -> Result<()> {
             "Run {} to check your system configuration.",
             style("tmuxify doctor").yellow()
         );
-        std::process::exit(1);
+        // Don't exit the process; return error to caller for testability
+        return Err(e);
     }
 
     // Determine project directory
