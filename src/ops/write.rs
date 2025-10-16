@@ -1,0 +1,154 @@
+use anyhow::{Context, Result};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use crate::model::{Config, TmuxpLocation};
+
+/// Options for writing files
+pub struct WriteOptions {
+    pub dry_run: bool,
+    pub force: bool,
+}
+
+/// Result of a write operation
+pub struct WriteResult {
+    pub tmuxp_path: PathBuf,
+    pub envrc_path: PathBuf,
+    pub tmuxp_backed_up: bool,
+    pub envrc_backed_up: bool,
+}
+
+impl WriteResult {
+    pub fn print_summary(&self) {
+        println!("\nFiles generated:");
+
+        if self.tmuxp_backed_up {
+            println!("  {} (backed up existing file)", self.tmuxp_path.display());
+        } else {
+            println!("  {}", self.tmuxp_path.display());
+        }
+
+        if self.envrc_backed_up {
+            println!("  {} (backed up existing file)", self.envrc_path.display());
+        } else {
+            println!("  {}", self.envrc_path.display());
+        }
+    }
+}
+
+/// Create a backup of a file if it exists
+fn backup_file(path: &Path, force: bool) -> Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+
+    if force {
+        // Force mode: no backup, just overwrite
+        return Ok(false);
+    }
+
+    // Create backup with timestamp
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let backup_path = path.with_extension(format!("yaml.backup.{}", timestamp));
+
+    fs::copy(path, &backup_path)
+        .with_context(|| format!("Failed to create backup at {}", backup_path.display()))?;
+
+    Ok(true)
+}
+
+/// Write configuration files to disk
+pub fn write_config(
+    config: &Config,
+    location: TmuxpLocation,
+    project_dir: &Path,
+    options: &WriteOptions,
+) -> Result<WriteResult> {
+    // Get file paths
+    let tmuxp_path = if location == TmuxpLocation::Home {
+        config.get_file_path(location)?
+    } else {
+        project_dir.join(".tmuxp.yaml")
+    };
+
+    let envrc_path = project_dir.join(".envrc");
+
+    // Generate content
+    let tmuxp_content = config.to_yaml()?;
+    let envrc_content = config.generate_envrc(location);
+
+    if options.dry_run {
+        // Dry run: just print what would be written
+        println!("\n[DRY RUN] Would write to: {}", tmuxp_path.display());
+        println!("---");
+        println!("{}", tmuxp_content);
+        println!("---");
+
+        println!("\n[DRY RUN] Would write to: {}", envrc_path.display());
+        println!("---");
+        println!("{}", envrc_content);
+        println!("---");
+
+        return Ok(WriteResult {
+            tmuxp_path,
+            envrc_path,
+            tmuxp_backed_up: false,
+            envrc_backed_up: false,
+        });
+    }
+
+    // Ensure parent directories exist
+    if let Some(parent) = tmuxp_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+    }
+
+    // Backup existing files if needed
+    let tmuxp_backed_up = backup_file(&tmuxp_path, options.force)?;
+    let envrc_backed_up = backup_file(&envrc_path, options.force)?;
+
+    // Write tmuxp config
+    fs::write(&tmuxp_path, tmuxp_content)
+        .with_context(|| format!("Failed to write {}", tmuxp_path.display()))?;
+
+    // Write .envrc
+    fs::write(&envrc_path, envrc_content)
+        .with_context(|| format!("Failed to write {}", envrc_path.display()))?;
+
+    Ok(WriteResult {
+        tmuxp_path,
+        envrc_path,
+        tmuxp_backed_up,
+        envrc_backed_up,
+    })
+}
+
+/// Run direnv allow in the project directory
+pub fn run_direnv_allow(project_dir: &Path) -> Result<()> {
+    use indicatif::{ProgressBar, ProgressStyle};
+    use std::process::Command;
+
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap(),
+    );
+    pb.set_message("Running direnv allow...");
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    let output = Command::new("direnv")
+        .arg("allow")
+        .current_dir(project_dir)
+        .output()
+        .context("Failed to execute direnv allow")?;
+
+    pb.finish_with_message("direnv allow completed");
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("direnv allow failed: {}", stderr);
+    }
+
+    Ok(())
+}
