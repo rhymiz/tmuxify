@@ -15,6 +15,7 @@ Interactive tmuxp configuration generator for macOS (and Linux).
 - **direnv integration**: Auto-generate `.envrc` for seamless session management
 - **Non-interactive mode**: Use flags for scripting and automation
 - **Doctor command**: Validates dependencies and shell configuration
+- **Smart detection**: Warns when run from inside a tmux session to prevent nesting issues
 
 ## Prerequisites
 
@@ -83,14 +84,6 @@ rm ~/.local/bin/tmuxify  # or wherever you installed it
 tmuxify
 ```
 
-This will guide you through:
-1. Validating dependencies
-2. Setting session name
-3. Choosing where to store the config (home or project)
-4. Creating windows with custom layouts
-5. Configuring panes and commands
-6. Previewing and confirming the configuration
-7. Writing files and running `direnv allow`
 
 ### Doctor command
 

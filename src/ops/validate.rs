@@ -111,3 +111,30 @@ pub fn get_shell_rc_path() -> Option<String> {
         home.join(rc_file).display().to_string()
     })
 }
+
+/// Check if currently running inside a tmux session
+pub fn is_inside_tmux() -> bool {
+    std::env::var("TMUX").is_ok()
+}
+
+/// Get the current tmux session name if inside tmux
+pub fn get_current_tmux_session() -> Option<String> {
+    if !is_inside_tmux() {
+        return None;
+    }
+
+    // Try to get session name from tmux
+    std::process::Command::new("tmux")
+        .args(["display-message", "-p", "#S"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+}

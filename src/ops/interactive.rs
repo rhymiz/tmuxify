@@ -11,6 +11,32 @@ pub fn run(args: Args) -> Result<()> {
     println!("{}", style("Welcome to tmuxify!").bold().cyan());
     println!();
 
+    // Check if running inside tmux
+    if validate::is_inside_tmux() {
+        eprintln!("{}", style("Warning:").yellow().bold());
+        eprintln!("You are currently inside a tmux session.");
+
+        if let Some(session_name) = validate::get_current_tmux_session() {
+            eprintln!("Current session: {}", style(&session_name).cyan());
+        }
+
+        eprintln!();
+        eprintln!("tmuxify is designed to create new tmux sessions.");
+        eprintln!("Running it from within tmux may cause unexpected behavior.");
+        eprintln!();
+
+        if !Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("Continue anyway?")
+            .default(false)
+            .interact()?
+        {
+            println!("Aborted. Please run tmuxify from outside of tmux.");
+            std::process::exit(0);
+        }
+
+        println!();
+    }
+
     // Check dependencies first
     if let Err(e) = validate::check_dependencies() {
         eprintln!("{}", style("Error:").red().bold());
